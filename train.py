@@ -6,7 +6,6 @@ from sklearn.metrics import precision_recall_fscore_support, accuracy_score
 from tqdm import tqdm
 import os
 import argparse
-
 from model import EfficientNet
 from dataset import get_dataloaders
 
@@ -26,8 +25,8 @@ def train(model, dataloader, optim, scheduler, criterion, epoch, device):
         loss = criterion(pred, y)
 
         loss.backward()
-        scheduler.step()
         optim.step()
+        scheduler.step()
         optim.zero_grad()
 
         total_loss += loss.item()
@@ -116,6 +115,9 @@ def main():
 
     if (args.pretrained):
         model = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT).to(device)
+        model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes).to(device)
+        for param in model.features.parameters():
+            param.requires_grad = False
     else:
         model = EfficientNet(num_classes).to(device)
 
@@ -174,7 +176,7 @@ def main():
 
         if val_acc > best_val_acc:
             best_val_acc = val_acc
-            model_name = 'efficientnet_adam.pth'
+            model_name = f'efficientnet_pretrained-{args.pretrained}_{args.optimizer}.pth'
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),

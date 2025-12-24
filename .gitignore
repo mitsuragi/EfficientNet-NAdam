@@ -2,4 +2,5 @@ input/
 *.pdf
 notebooks/
 __pycache__/
+models/
 .ipynb_checkpoints/

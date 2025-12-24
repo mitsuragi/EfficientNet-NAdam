@@ -13,11 +13,6 @@ base_model = [
     [6, 320, 1, 1, 3]
 ]
 
-# phi_values = {
-#     # phi, res, drop_rate
-#     "b0": [0, 224, 0.2]
-# }
-
 class CNNBlock(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride, padding, groups=1):
         super(CNNBlock, self).__init__()

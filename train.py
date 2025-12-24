@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
 from sklearn.metrics import precision_recall_fscore_support, accuracy_score 
 from tqdm import tqdm
 import os
+import argparse
 
 from model import EfficientNet
 from dataset import get_dataloaders
@@ -88,35 +90,56 @@ def test(model, dataloader, device):
     return accuracy, precision, recall, f1
 
 def main():
-    EPOCHS = 30
+    parser = argparse.ArgumentParser(description='EfficientNet learning')
+    parser.add_argument('--data_dir', type=str, default='input', help='Директория с исходными данными')
+    parser.add_argument('--batch_size', type=int, default=32, help='Размер батча')
+    parser.add_argument('--epochs', type=int, default=10, help='Количество эпох')
+    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--optimizer', type=str, default='adam', choices=['adam', 'nadam'], help='Оптимизатор (Adam или NAdam)')
+    parser.add_argument('--pretrained', action='store_true',help='Использовать предобученную модель')
+    parser.add_argument('--save_dir', type=str, default='models', help='Директория для сохранения моделей')
+    parser.add_argument('--num_workers', type=int, default=0, help='Количество workers для Dataloader')
+
+    args = parser.parse_args()
+
+    if args.optimizer == 'nadam' and not args.pretrained:
+        print('Так как используется не предобученная модель, то оптимизатор принудительно будет установлен Adam')
+
+    IMG_SIZE = 224
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Используется {device}')
 
-    os.makedirs('models', exist_ok=True)
+    os.makedirs(args.save_dir, exist_ok=True)
 
     print('Загрузка данных\n')
-    train_dataloader, eval_dataloader, test_dataloader, num_classes = get_dataloaders('input/', batch_size=64, img_size=224, num_workers=2)
+    train_dataloader, eval_dataloader, test_dataloader, num_classes = get_dataloaders(args.data_dir, batch_size=args.batch_size, img_size=IMG_SIZE, num_workers=args.num_workers)
 
-    model = EfficientNet(num_classes).to(device)
+    if (args.pretrained):
+        model = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT).to(device)
+    else:
+        model = EfficientNet(num_classes).to(device)
+
+    if args.optimizer == 'nadam' and args.pretrained:
+        optimizer = optim.NAdam(model.parameters(), lr=args.lr)
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=args.lr)
 
     criterion = nn.CrossEntropyLoss()
 
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
-
     scheduler = optim.lr_scheduler.OneCycleLR(
         optimizer,
-        max_lr=1e-3,
+        max_lr=args.lr * 10,
         steps_per_epoch=len(train_dataloader),
-        epochs=EPOCHS,
+        epochs=args.epochs,
         anneal_strategy='cos'
     )
 
-    print('Начало обучения')
+    print(f'Начало обучения\tОптимизатор: {args.optimizer.upper()}, lr={args.lr}')
     best_val_acc = 0
     train_history = []
     val_history = []
 
-    for epoch in range(1, EPOCHS + 1):
+    for epoch in range(1, args.epochs + 1):
         train_loss, train_acc, train_prec, train_rec, train_f1 = train(
             model, train_dataloader, optimizer, scheduler, criterion, epoch, device
         )
@@ -143,7 +166,7 @@ def main():
             'f1': val_f1
         })
 
-        print(f'\nEpoch {epoch}/{EPOCHS}:')
+        print(f'\nEpoch {epoch}/{args.epochs}:')
         print(f'  Train - Loss: {train_loss:.4f}, Acc: {train_acc:.4f}, '
               f'Precision: {train_prec:.4f}, Recall: {train_rec:.4f}, F1: {train_f1:.4f}')
         print(f'  Val   - Loss: {val_loss:.4f}, Acc: {val_acc:.4f}, '
@@ -160,10 +183,10 @@ def main():
                 'val_precision': val_prec,
                 'val_recall': val_rec,
             }, os.path.join('models', model_name))
-            print(f'  Сохранена лучшая модель (Val Acc: {val_acc:.4f})')
+            print(f'  Сохранена лучшая модель (Val Acc: {val_acc:.4f})\n')
 
     print('Тестировние лучшей модели')
-    checkpoint = torch.load(os.path.join('models', model_name), map_location=device)
+    checkpoint = torch.load(os.path.join(args.save_dir, model_name), map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
     test_acc, test_prec, test_rec, test_f1 = test(model, test_dataloader, device)
@@ -176,7 +199,6 @@ def main():
     
     # Сохранение результатов
     results = {
-        # 'config': vars(args),
         'train_history': train_history,
         'val_history': val_history,
         'test_results': {
@@ -188,11 +210,11 @@ def main():
     }
     
     import json
-    results_name = 'efficientnet_adam.json'
-    with open(os.path.join('models', results_name), 'w') as f:
+    results_name = f'efficientnet_pretrained_{args.pretrained}_{args.optimizer}.json'
+    with open(os.path.join(args.save_dir, results_name), 'w') as f:
         json.dump(results, f, indent=4)
     
-    print(f'\nРезультаты сохранены в {os.path.join('models', results_name)}')
+    print(f'\nРезультаты сохранены в {os.path.join(args.save_dir, results_name)}')
 
 
 if __name__ == '__main__':

@@ -101,9 +101,6 @@ def main():
 
     args = parser.parse_args()
 
-    print(vars(args))
-    return
-
     if args.optimizer == 'nadam' and not args.pretrained:
         print('Так как используется не предобученная модель, то оптимизатор принудительно будет установлен Adam')
 
